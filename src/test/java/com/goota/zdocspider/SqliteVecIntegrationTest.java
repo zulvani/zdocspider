@@ -120,7 +120,7 @@ class SqliteVecIntegrationTest {
         assertTrue(fileNameMatches.get(0).getDistance() < 0.05, "Exact match should have near-zero distance");
 
         // 3. Test API endpoint for vector search
-        mockMvc.perform(get("/api/docs/vector-search")
+        mockMvc.perform(get("/api/doc/vector-search")
                         .param("q", "Artificial intelligence and neural networks research findings.")
                         .param("field", "content")
                         .param("limit", "5")

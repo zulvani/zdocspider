@@ -73,9 +73,9 @@ flowchart TD
     end
 
     subgraph API [" 🌐 REST API & UI "]
-        ScanAPI["POST /api/docs/scan"]
-        SearchAPI["GET /api/docs (Smart Fulltext)"]
-        VectorAPI["GET /api/docs/vector-search"]
+        ScanAPI["POST /api/doc/scan"]
+        SearchAPI["GET /api/doc (Smart Fulltext)"]
+        VectorAPI["GET /api/doc/vector-search"]
         Swagger["OpenAPI / Swagger UI"]
     end
 
@@ -155,7 +155,7 @@ http://localhost:8080/swagger-ui/index.html
 Scans a directory path on the local filesystem, extracts text from all PDF files, computes checksums, generates vector embeddings, and stores them in SQLite.
 
 ```http
-POST /api/docs/scan
+POST /api/doc/scan
 Content-Type: application/json
 ```
 
@@ -174,7 +174,7 @@ Content-Type: application/json
 
 #### Example cURL
 ```bash
-curl -X POST "http://localhost:8080/api/docs/scan" \
+curl -X POST "http://localhost:8080/api/doc/scan" \
   -H "Content-Type: application/json" \
   -d '{
     "root_path": "/Users/username/Documents/Reports",
@@ -205,12 +205,90 @@ curl -X POST "http://localhost:8080/api/docs/scan" \
 
 ---
 
-### 2. Full-Text & Smart Phrase Search
+### 2. Duplicate File Detection & Resolution
+
+Scans the filesystem using a two-tier fast deduplication algorithm (file size filter + cryptographic checksum matching) to identify duplicate documents. The primary file keeps an empty list, while subsequent duplicates record the canonical master file path in `duplicate_paths` (JSON array).
+
+```http
+POST /api/doc/duplicate
+```
+
+#### Request Body
+```json
+{
+  "root_path": "/Users/username/Documents/Reports",
+  "deep": true
+}
+```
+
+#### Response (`200 OK`)
+```json
+{
+  "message": "Duplicate detection completed successfully",
+  "rootPath": "/Users/username/Documents/Reports",
+  "deep": true,
+  "totalFilesFound": 4,
+  "totalProcessed": 4,
+  "totalDuplicatesFound": 1,
+  "totalUniqueFiles": 3,
+  "totalFailed": 0,
+  "docs": [
+    {
+      "id": "e4b1050a-9d96-41f2-95f0-62e5352c3c12",
+      "fileName": "original-report.pdf",
+      "filePath": "/Users/username/Documents/Reports/original-report.pdf",
+      "checksum": "3b719468923a1a9f09199859f936a61e",
+      "duplicatePaths": [],
+      "createdAt": "2026-10-13T01:00:00"
+    },
+    {
+      "id": "f5c2161b-8e07-42f3-a601-73f6463d4d23",
+      "fileName": "copy-of-report.pdf",
+      "filePath": "/Users/username/Documents/Reports/backup/copy-of-report.pdf",
+      "checksum": "3b719468923a1a9f09199859f936a61e",
+      "duplicatePaths": [
+        "/Users/username/Documents/Reports/original-report.pdf"
+      ],
+      "createdAt": "2026-10-13T01:05:00"
+    }
+  ]
+}
+```
+
+#### Retrieve Duplicate Documents (Database Only)
+
+Retrieves all duplicate file information directly from the database without filesystem scanning.
+
+```http
+GET /api/doc/duplicate
+```
+
+#### Example cURL
+```bash
+curl -X GET "http://localhost:8080/api/doc/duplicate"
+```
+
+#### Response (`200 OK`)
+```json
+[
+  {
+    "file_name": "copy-of-report.pdf",
+    "checksum": "3b719468923a1a9f09199859f936a61e",
+    "paths": [
+      "/Users/username/Documents/Reports/original-report.pdf"
+    ]
+  }
+]
+```
+
+---
+
+### 3. Full-Text & Smart Phrase Search
 
 Performs paginated search against document contents and file names with smart quoted phrase support.
 
 ```http
-GET /api/docs?q={query}&page={page}&size={size}
+GET /api/doc?q={query}&page={page}&size={size}
 ```
 
 #### Query Parameters
@@ -222,7 +300,7 @@ GET /api/docs?q={query}&page={page}&size={size}
 
 #### Example cURL
 ```bash
-curl -X GET "http://localhost:8080/api/docs?q=\"quarterly+revenue\"+2025&page=0&size=10"
+curl -X GET "http://localhost:8080/api/doc?q=\"quarterly+revenue\"+2025&page=0&size=10"
 ```
 
 #### Response (`200 OK`)
@@ -253,7 +331,7 @@ curl -X GET "http://localhost:8080/api/docs?q=\"quarterly+revenue\"+2025&page=0&
 Performs approximate nearest neighbor vector similarity search using `sqlite-vec`.
 
 ```http
-GET /api/docs/vector-search?q={query}&field={field}&limit={limit}
+GET /api/doc/vector-search?q={query}&field={field}&limit={limit}
 ```
 
 #### Query Parameters
@@ -265,7 +343,7 @@ GET /api/docs/vector-search?q={query}&field={field}&limit={limit}
 
 #### Example cURL
 ```bash
-curl -X GET "http://localhost:8080/api/docs/vector-search?q=cybersecurity+compliance+guidelines&field=content&limit=5"
+curl -X GET "http://localhost:8080/api/doc/vector-search?q=cybersecurity+compliance+guidelines&field=content&limit=5"
 ```
 
 #### Response (`200 OK`)

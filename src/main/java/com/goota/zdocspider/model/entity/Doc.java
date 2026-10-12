@@ -34,6 +34,11 @@ public class Doc {
     @Column(name = "checksum", length = 64)
     private String checksum;
 
+    @Convert(converter = com.goota.zdocspider.model.converter.StringListJsonConverter.class)
+    @Column(name = "duplicate_paths", columnDefinition = "TEXT")
+    @Builder.Default
+    private java.util.List<String> duplicatePaths = new java.util.ArrayList<>();
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

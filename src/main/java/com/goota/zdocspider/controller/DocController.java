@@ -1,5 +1,7 @@
 package com.goota.zdocspider.controller;
 
+import com.goota.zdocspider.model.dto.DocDuplicatePathResponse;
+import com.goota.zdocspider.model.dto.DocDuplicateResponse;
 import com.goota.zdocspider.model.dto.DocScanRequest;
 import com.goota.zdocspider.model.dto.DocScanResponse;
 import com.goota.zdocspider.service.DocService;
@@ -9,8 +11,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
-@RequestMapping({ "/api/docs" })
+@RequestMapping("/api/doc")
 @RequiredArgsConstructor
 @Tag(name = "Document Controller", description = "APIs for scanning and managing documents")
 public class DocController {
@@ -21,6 +25,20 @@ public class DocController {
     @Operation(summary = "Scan documents", description = "Scan all PDF files starting from root_path and extract content, file name, and checksum into docs table")
     public ResponseEntity<DocScanResponse> scanDocuments(@RequestBody DocScanRequest request) {
         DocScanResponse response = docService.scanAndSaveDocs(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/duplicate")
+    @Operation(summary = "Detect duplicate documents", description = "Scan all PDF files starting from root_path, detect duplicates using two-tier fast checksum matching, and store duplicate paths in docs table")
+    public ResponseEntity<DocDuplicateResponse> detectDuplicates(@RequestBody DocScanRequest request) {
+        DocDuplicateResponse response = docService.scanAndDetectDuplicates(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/duplicate")
+    @Operation(summary = "Get duplicate documents from database", description = "Return duplicate file paths read directly from the database without filesystem scanning")
+    public ResponseEntity<List<DocDuplicatePathResponse>> getDuplicates() {
+        List<DocDuplicatePathResponse> response = docService.getDuplicateDocs();
         return ResponseEntity.ok(response);
     }
 

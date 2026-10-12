@@ -1,5 +1,7 @@
 package com.goota.zdocspider.service;
 
+import com.goota.zdocspider.model.dto.DocDuplicatePathResponse;
+import com.goota.zdocspider.model.dto.DocDuplicateResponse;
 import com.goota.zdocspider.model.dto.DocScanRequest;
 import com.goota.zdocspider.model.dto.DocScanResponse;
 import com.goota.zdocspider.model.entity.Doc;
@@ -21,7 +23,11 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -77,6 +83,171 @@ public class DocService {
                 .totalVectorsIndexed(vectorsIndexedCount)
                 .docs(savedDocs)
                 .build();
+    }
+
+    @Transactional
+    public DocDuplicateResponse scanAndDetectDuplicates(DocScanRequest request) {
+        if (request == null || request.getRootPath() == null || request.getRootPath().trim().isEmpty()) {
+            throw new IllegalArgumentException("root_path is required");
+        }
+
+        Path rootPath = Paths.get(request.getRootPath().trim());
+        if (!Files.exists(rootPath)) {
+            throw new IllegalArgumentException("Path does not exist: " + request.getRootPath());
+        }
+        if (!Files.isDirectory(rootPath)) {
+            throw new IllegalArgumentException("Path is not a directory: " + request.getRootPath());
+        }
+
+        boolean deep = Boolean.TRUE.equals(request.getDeep());
+        List<Path> pdfFiles = findPdfFiles(rootPath, deep);
+
+        // Tier 1: Group files by file size (0-cost I/O filter)
+        Map<Long, List<Path>> filesBySize = new LinkedHashMap<>();
+        for (Path pdfPath : pdfFiles) {
+            try {
+                long size = Files.size(pdfPath);
+                filesBySize.computeIfAbsent(size, k -> new ArrayList<>()).add(pdfPath);
+            } catch (IOException e) {
+                log.warn("Could not read file size for {}: {}", pdfPath, e.getMessage());
+                filesBySize.computeIfAbsent(-1L, k -> new ArrayList<>()).add(pdfPath);
+            }
+        }
+
+        List<Doc> processedDocs = new ArrayList<>();
+        int duplicatesCount = 0;
+        int failedCount = 0;
+
+        // In-memory cache for canonical checksum -> canonical filePath
+        Map<String, String> canonicalMap = new HashMap<>();
+
+        for (Map.Entry<Long, List<Path>> entry : filesBySize.entrySet()) {
+            List<Path> pathsForSize = entry.getValue();
+
+            for (Path pdfPath : pathsForSize) {
+                try {
+                    String fullPath = pdfPath.toAbsolutePath().toString();
+                    String fileName = pdfPath.getFileName().toString();
+                    String checksum = calculateMd5Checksum(pdfPath);
+
+                    // Find if a canonical record exists in memory or in DB with the same checksum
+                    String canonicalPath = canonicalMap.get(checksum);
+                    if (canonicalPath == null) {
+                        List<Doc> existingDocsWithChecksum = docRepository.findAllByChecksumOrderByCreatedAtAsc(checksum);
+                        for (Doc d : existingDocsWithChecksum) {
+                            if (!d.getFilePath().equals(fullPath)) {
+                                canonicalPath = d.getFilePath();
+                                break;
+                            }
+                        }
+                    }
+
+                    Doc doc = docRepository.findByFilePath(fullPath)
+                            .orElseGet(() -> Doc.builder()
+                                    .filePath(fullPath)
+                                    .build());
+
+                    doc.setFileName(fileName);
+                    doc.setChecksum(checksum);
+
+                    if (canonicalPath != null && !canonicalPath.equals(fullPath)) {
+                        // This file is a duplicate of the canonical file
+                        duplicatesCount++;
+                        doc.setDuplicatePaths(new ArrayList<>(List.of(canonicalPath)));
+
+                        // Populate doc content if needed
+                        if (doc.getDocContent() == null) {
+                            Optional<Doc> canonicalDoc = docRepository.findByFilePath(canonicalPath);
+                            if (canonicalDoc.isPresent() && canonicalDoc.get().getDocContent() != null) {
+                                doc.setDocContent(canonicalDoc.get().getDocContent());
+                            } else {
+                                doc.setDocContent(extractPdfContent(pdfPath.toFile()));
+                            }
+                        }
+
+                        Doc savedDoc = docRepository.save(doc);
+                        processedDocs.add(savedDoc);
+                        log.info("Detected duplicate: {} -> primary {}", fullPath, canonicalPath);
+                    } else {
+                        // This file is the primary / canonical file
+                        canonicalMap.put(checksum, fullPath);
+                        doc.setDuplicatePaths(new ArrayList<>()); // primary file keeps an empty list
+
+                        if (doc.getDocContent() == null) {
+                            doc.setDocContent(extractPdfContent(pdfPath.toFile()));
+                        }
+
+                        Doc savedDoc = docRepository.save(doc);
+
+                        // Generate vector embeddings and store in sqlite-vec for primary file
+                        try {
+                            float[] fileNameVector = embeddingService.generateEmbedding(fileName);
+                            float[] contentVector = embeddingService.generateEmbedding(doc.getDocContent() != null ? doc.getDocContent() : "");
+                            sqliteVecService.saveDocVectors(savedDoc.getId().toString(), fileNameVector, contentVector);
+                        } catch (Exception e) {
+                            log.warn("Failed to generate/store vectors for doc {}: {}", savedDoc.getId(), e.getMessage());
+                        }
+
+                        processedDocs.add(savedDoc);
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to process PDF duplicate detection for: {}", pdfPath, e);
+                    failedCount++;
+                }
+            }
+        }
+
+        int uniqueCount = processedDocs.size() - duplicatesCount;
+
+        return DocDuplicateResponse.builder()
+                .message("Duplicate detection completed successfully")
+                .rootPath(rootPath.toAbsolutePath().toString())
+                .deep(deep)
+                .totalFilesFound(pdfFiles.size())
+                .totalProcessed(processedDocs.size())
+                .totalDuplicatesFound(duplicatesCount)
+                .totalUniqueFiles(uniqueCount)
+                .totalFailed(failedCount)
+                .docs(processedDocs)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<DocDuplicatePathResponse> getDuplicateDocs() {
+        List<Doc> docsWithDuplicates = docRepository.findAllWithDuplicatePaths();
+        if (!docsWithDuplicates.isEmpty()) {
+            return docsWithDuplicates.stream()
+                    .filter(doc -> doc.getDuplicatePaths() != null && !doc.getDuplicatePaths().isEmpty())
+                    .map(doc -> DocDuplicatePathResponse.builder()
+                            .fileName(doc.getFileName())
+                            .checksum(doc.getChecksum())
+                            .paths(doc.getDuplicatePaths())
+                            .build())
+                    .toList();
+        }
+
+        // Fallback: If duplicate_paths column in DB was not yet populated, check for files sharing identical checksums in docs table
+        List<Doc> allDocs = docRepository.findAll();
+        Map<String, List<Doc>> groupedByChecksum = allDocs.stream()
+                .filter(doc -> doc.getChecksum() != null && !doc.getChecksum().isEmpty())
+                .collect(java.util.stream.Collectors.groupingBy(Doc::getChecksum, LinkedHashMap::new, java.util.stream.Collectors.toList()));
+
+        List<DocDuplicatePathResponse> result = new ArrayList<>();
+        for (Map.Entry<String, List<Doc>> entry : groupedByChecksum.entrySet()) {
+            List<Doc> group = entry.getValue();
+            if (group.size() > 1) {
+                Doc primary = group.get(0);
+                for (int i = 1; i < group.size(); i++) {
+                    Doc duplicate = group.get(i);
+                    result.add(DocDuplicatePathResponse.builder()
+                            .fileName(duplicate.getFileName())
+                            .checksum(duplicate.getChecksum())
+                            .paths(List.of(primary.getFilePath()))
+                            .build());
+                }
+            }
+        }
+        return result;
     }
 
     private List<Path> findPdfFiles(Path rootPath, boolean deep) {

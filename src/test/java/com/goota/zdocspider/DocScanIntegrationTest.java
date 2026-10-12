@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -195,34 +196,34 @@ class DocScanIntegrationTest {
                 .build());
 
         // 1. Search in file_name
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/docs")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/doc")
                         .param("q", "financial_report"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].fileName").value("financial_report_2024.pdf"));
 
         // 2. Search in doc_content
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/docs")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/doc")
                         .param("q", "guidelines"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].fileName").value("hr_policy.pdf"));
 
         // 3. Smart query with multiple keywords matching either fileName or docContent
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/docs")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/doc")
                         .param("q", "financial"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(2));
 
         // 4. Exact phrase matching with quotes
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/docs")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/doc")
                         .param("q", "\"financial statement\""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].fileName").value("financial_report_2024.pdf"));
 
         // 5. Pagination with page size and max page size cap (e.g. size=1, page=0)
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/docs")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/doc")
                         .param("page", "0")
                         .param("size", "1"))
                 .andExpect(status().isOk())
@@ -232,9 +233,112 @@ class DocScanIntegrationTest {
                 .andExpect(jsonPath("$.content.length()").value(1));
 
         // 6. Max page size capping at 100
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/docs")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/doc")
                         .param("size", "500"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pageSize").value(100));
     }
+
+    @Test
+    void testDuplicateDetectionEndpoint() throws Exception {
+        File file1 = tempDir.resolve("original_doc.pdf").toFile();
+        createSamplePdf(file1, "Duplicate Test PDF Unique Content");
+
+        // Copy file1 content into file2 (exact duplicate)
+        File file2 = tempDir.resolve("duplicate_doc.pdf").toFile();
+        Files.copy(file1.toPath(), file2.toPath());
+
+        // File 3: unique content
+        File file3 = tempDir.resolve("unique_doc.pdf").toFile();
+        createSamplePdf(file3, "Completely different content in third document");
+
+        String jsonPayload = String.format("{\"root_path\": \"%s\", \"deep\": false}", tempDir.toString().replace("\\", "\\\\"));
+
+        mockMvc.perform(post("/api/doc/duplicate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalFilesFound").value(3))
+                .andExpect(jsonPath("$.totalProcessed").value(3))
+                .andExpect(jsonPath("$.totalDuplicatesFound").value(1))
+                .andExpect(jsonPath("$.totalUniqueFiles").value(2));
+
+        // Verify in database that duplicatePaths field contains the primary document's path
+        List<Doc> allDocs = docRepository.findAll();
+        assertEquals(3, allDocs.size());
+
+        long duplicatesInDb = allDocs.stream().filter(d -> !d.getDuplicatePaths().isEmpty()).count();
+        assertEquals(1, duplicatesInDb);
+
+        Doc dupDoc = allDocs.stream().filter(d -> !d.getDuplicatePaths().isEmpty()).findFirst().orElseThrow();
+        assertEquals(1, dupDoc.getDuplicatePaths().size());
+        assertTrue(dupDoc.getDuplicatePaths().get(0).contains("original_doc.pdf") || dupDoc.getDuplicatePaths().get(0).contains("duplicate_doc.pdf"));
+    }
+
+    @Test
+    void testDuplicateApiEndpointInvalidPath() throws Exception {
+        String jsonPayload = "{\"root_path\": \"/invalid/nonexistent/path\", \"deep\": false}";
+
+        mockMvc.perform(post("/api/doc/duplicate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonPayload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void testGetDuplicateEndpointDirectlyFromDatabase() throws Exception {
+        // Save records directly to database: one with duplicate_paths and one without
+        docRepository.save(Doc.builder()
+                .fileName("canonical_document.pdf")
+                .filePath("/docs/canonical_document.pdf")
+                .checksum("checksum-abc-123")
+                .duplicatePaths(new java.util.ArrayList<>())
+                .build());
+
+        docRepository.save(Doc.builder()
+                .fileName("duplicate_document.pdf")
+                .filePath("/backup/duplicate_document.pdf")
+                .checksum("checksum-abc-123")
+                .duplicatePaths(new java.util.ArrayList<>(List.of("/docs/canonical_document.pdf")))
+                .build());
+
+        mockMvc.perform(get("/api/doc/duplicate"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].file_name").value("duplicate_document.pdf"))
+                .andExpect(jsonPath("$[0].checksum").value("checksum-abc-123"))
+                .andExpect(jsonPath("$[0].paths.length()").value(1))
+                .andExpect(jsonPath("$[0].paths[0]").value("/docs/canonical_document.pdf"));
+    }
+
+    @Test
+    void testGetDuplicateEndpointAfterPostScanAndDetect() throws Exception {
+        File file1 = tempDir.resolve("master_file.pdf").toFile();
+        createSamplePdf(file1, "Content for master and duplicate testing");
+
+        File file2 = tempDir.resolve("clone_file.pdf").toFile();
+        Files.copy(file1.toPath(), file2.toPath());
+
+        File file3 = tempDir.resolve("distinct_file.pdf").toFile();
+        createSamplePdf(file3, "Distinct and standalone file content");
+
+        String jsonPayload = String.format("{\"root_path\": \"%s\", \"deep\": false}", tempDir.toString().replace("\\", "\\\\"));
+
+        // First trigger duplicate detection scan
+        mockMvc.perform(post("/api/doc/duplicate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalDuplicatesFound").value(1));
+
+        // Now test GET /api/doc/duplicate (reading from database without scanning)
+        mockMvc.perform(get("/api/doc/duplicate"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].file_name").isNotEmpty())
+                .andExpect(jsonPath("$[0].checksum").isNotEmpty())
+                .andExpect(jsonPath("$[0].paths.length()").value(1));
+    }
 }
+
