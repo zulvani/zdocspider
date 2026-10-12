@@ -301,13 +301,16 @@ spring.datasource.driver-class-name=org.sqlite.JDBC
 sqlite.vec.enabled=true
 sqlite.vec.path=extensions/sqlite-vec/vec0.dylib
 
-# Embedding Provider (openai | ollama | mock)
-embedding.provider=openai
-embedding.dimension=1536
-embedding.api-url=https://api.openai.com/v1/embeddings
-embedding.api-key=${OPENAI_API_KEY:}
-embedding.model=text-embedding-3-small
-embedding.fallback-enabled=true
+# Spring AI ONNX Transformer Embedding Model (Local In-Process)
+spring.ai.model.embedding=transformers
+spring.ai.embedding.transformer.tokenizer.uri=classpath:/onnx/all-MiniLM-L6-v2/tokenizer.json
+spring.ai.embedding.transformer.onnx.model-uri=https://media.githubusercontent.com/media/spring-projects/spring-ai/refs/heads/main/models/spring-ai-transformers/src/main/resources/onnx/all-MiniLM-L6-v2/model.onnx
+spring.ai.embedding.transformer.tokenizer.options.padding=true
+spring.ai.embedding.transformer.cache.directory=${java.io.tmpdir}/spring-ai-onnx-model
+
+# Embedding Settings (384 dimensions for all-MiniLM-L6-v2)
+embedding.provider=transformers
+embedding.dimension=384
 
 # Database Migrations
 spring.flyway.enabled=true
@@ -316,7 +319,17 @@ spring.flyway.locations=classpath:db/migration
 
 ### Supported Embedding Providers
 
-#### 1. OpenAI (Default)
+#### 1. Spring AI ONNX Transformer (Default & Recommended)
+High-performance local embeddings using [Spring AI ONNX Transformers](https://docs.spring.io/spring-ai/reference/api/embeddings/onnx.html) running in-process via ONNX Runtime:
+```properties
+spring.ai.model.embedding=transformers
+spring.ai.embedding.transformer.tokenizer.uri=classpath:/onnx/all-MiniLM-L6-v2/tokenizer.json
+spring.ai.embedding.transformer.onnx.model-uri=https://media.githubusercontent.com/media/spring-projects/spring-ai/refs/heads/main/models/spring-ai-transformers/src/main/resources/onnx/all-MiniLM-L6-v2/model.onnx
+spring.ai.embedding.transformer.tokenizer.options.padding=true
+embedding.dimension=384
+```
+
+#### 2. OpenAI
 ```properties
 embedding.provider=openai
 embedding.dimension=1536
@@ -325,7 +338,7 @@ embedding.api-key=${OPENAI_API_KEY}
 embedding.model=text-embedding-3-small
 ```
 
-#### 2. Ollama (Self-Hosted / Local LLM)
+#### 3. Ollama (Self-Hosted / Local LLM)
 ```properties
 embedding.provider=ollama
 embedding.dimension=768
@@ -334,10 +347,10 @@ embedding.model=nomic-embed-text
 embedding.fallback-enabled=true
 ```
 
-#### 3. Deterministic Mock / Offline Mode
+#### 4. Deterministic Mock / Offline Mode
 ```properties
 embedding.provider=mock
-embedding.dimension=1536
+embedding.dimension=384
 ```
 
 ---
