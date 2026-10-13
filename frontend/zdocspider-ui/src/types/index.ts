@@ -26,17 +26,25 @@ export interface DocScanResponse {
 
 export interface DocDuplicatePathResponse {
   id?: string
+  file_name?: string
   fileName?: string
   filePath?: string
   checksum?: string
+  paths?: string[]
   duplicatePaths?: string[]
 }
 
 export interface DocDuplicateResponse {
   message?: string
   rootPath?: string
+  deep?: boolean
   totalFilesFound: number
-  totalDuplicates: number
+  totalProcessed?: number
+  totalDuplicates?: number
+  totalDuplicatesFound?: number
+  totalUniqueFiles?: number
+  totalFailed?: number
+  docs?: Doc[]
   duplicates?: DocDuplicatePathResponse[]
 }
 

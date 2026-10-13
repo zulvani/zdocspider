@@ -293,44 +293,119 @@
 
           <div v-else class="d-flex flex-column ga-3">
             <v-card
-              v-for="(dup, idx) in duplicateDocs"
+              v-for="(dup, idx) in filteredDuplicateDocs"
               :key="idx"
-              variant="tonal"
-              color="warning"
-              class="pa-4 rounded-xl"
+              variant="outlined"
+              class="pa-4 rounded-xl border-subtle duplicate-card elevation-1"
             >
-              <div class="d-flex align-center justify-space-between mb-2">
-                <div class="font-weight-bold text-body-1 d-flex align-center ga-2">
-                  <v-icon icon="mdi-file-pdf-box" color="error" />
-                  {{ dup.fileName }}
+              <!-- Card Header: Prominent File Name & Badges -->
+              <div class="d-flex align-center justify-space-between mb-3 flex-wrap ga-2 border-b pb-2">
+                <div class="d-flex align-center ga-2 text-truncate" style="max-width: 75%;">
+                  <v-icon icon="mdi-file-pdf-box" color="error" size="26" class="flex-shrink-0" />
+                  <div class="text-truncate">
+                    <span class="font-weight-bold text-subtitle-1 text-truncate d-block">
+                      {{ getDuplicateFileName(dup) }}
+                    </span>
+                    <span class="text-caption text-medium-emphasis">
+                      Duplicate PDF Document
+                    </span>
+                  </div>
                 </div>
-                <v-chip size="small" color="warning" variant="flat">
-                  {{ (dup.duplicatePaths?.length || 0) + 1 }} Copies
+
+                <div class="d-flex align-center ga-2">
+                  <v-chip size="small" color="warning" variant="flat" class="font-weight-medium">
+                    <v-icon start icon="mdi-content-duplicate" size="14" />
+                    {{ getDuplicatePaths(dup).length + 1 }} Copies Detected
+                  </v-chip>
+
+                  <v-tooltip text="Copy File Name" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        icon="mdi-content-copy"
+                        variant="text"
+                        size="small"
+                        density="comfortable"
+                        @click="copyPath(getDuplicateFileName(dup))"
+                      />
+                    </template>
+                  </v-tooltip>
+                </div>
+              </div>
+
+              <!-- Checksum Info -->
+              <div class="d-flex align-center ga-2 mb-3 flex-wrap">
+                <span class="text-caption font-weight-bold text-medium-emphasis">MD5 / SHA-256:</span>
+                <v-chip
+                  size="small"
+                  variant="tonal"
+                  color="secondary"
+                  class="font-mono cursor-pointer"
+                  @click="copyPath(dup.checksum || '')"
+                >
+                  <v-icon start icon="mdi-fingerprint" size="14" />
+                  {{ dup.checksum || 'No checksum' }}
                 </v-chip>
+                <span class="text-caption text-disabled">(click to copy)</span>
               </div>
 
-              <div class="text-caption font-mono mb-2">
-                <strong>Registered Path:</strong> {{ dup.filePath }}
+              <!-- Primary Path if known -->
+              <div v-if="dup.filePath" class="mb-2">
+                <div class="text-caption font-weight-bold text-medium-emphasis mb-1">
+                  PRIMARY CANONICAL LOCATION:
+                </div>
+                <div class="d-flex align-center justify-space-between pa-2 rounded bg-surface-variant font-mono text-caption">
+                  <span class="text-truncate">{{ dup.filePath }}</span>
+                  <v-btn
+                    icon="mdi-content-copy"
+                    variant="text"
+                    size="x-small"
+                    density="compact"
+                    @click="copyPath(dup.filePath)"
+                  />
+                </div>
               </div>
 
-              <div class="text-caption font-mono mb-2">
-                <strong>Checksum:</strong> {{ dup.checksum }}
-              </div>
-
-              <div v-if="dup.duplicatePaths && dup.duplicatePaths.length > 0">
-                <div class="text-caption font-weight-bold mb-1">Duplicate Locations:</div>
-                <v-list density="compact" class="bg-surface rounded-lg pa-2">
+              <!-- Duplicate Paths List -->
+              <div v-if="getDuplicatePaths(dup).length > 0">
+                <div class="text-caption font-weight-bold text-medium-emphasis mb-1">
+                  DUPLICATE FILE LOCATIONS ({{ getDuplicatePaths(dup).length }}):
+                </div>
+                <v-list density="compact" class="bg-surface-variant rounded-lg pa-1">
                   <v-list-item
-                    v-for="(path, pIdx) in dup.duplicatePaths"
+                    v-for="(path, pIdx) in getDuplicatePaths(dup)"
                     :key="pIdx"
-                    class="font-mono text-caption"
+                    class="font-mono text-caption rounded mb-1"
                   >
                     <template #prepend>
                       <v-icon icon="mdi-folder-alert-outline" size="16" color="warning" class="mr-2" />
                     </template>
-                    {{ path }}
+                    <span class="text-truncate">{{ path }}</span>
+                    <template #append>
+                      <v-btn
+                        icon="mdi-content-copy"
+                        variant="text"
+                        size="x-small"
+                        density="compact"
+                        @click="copyPath(path)"
+                      />
+                    </template>
                   </v-list-item>
                 </v-list>
+              </div>
+
+              <!-- Action Footer -->
+              <div class="d-flex align-center justify-end ga-2 pt-3 mt-2 border-t">
+                <v-btn
+                  variant="tonal"
+                  color="accent"
+                  size="small"
+                  prepend-icon="mdi-chat-outline"
+                  class="rounded-lg text-none"
+                  @click="askAboutDuplicate(dup)"
+                >
+                  Ask AI About This File
+                </v-btn>
               </div>
             </v-card>
           </div>
@@ -598,6 +673,54 @@ function onPageChange(newPage: number) {
 function previewDoc(doc: Doc) {
   activeDoc.value = doc
   previewDialog.value = true
+}
+
+const filteredDuplicateDocs = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  if (!q) return duplicateDocs.value
+  return duplicateDocs.value.filter(dup => {
+    const name = getDuplicateFileName(dup).toLowerCase()
+    const cs = (dup.checksum || '').toLowerCase()
+    const paths = getDuplicatePaths(dup).join(' ').toLowerCase()
+    const primary = (dup.filePath || '').toLowerCase()
+    return name.includes(q) || cs.includes(q) || paths.includes(q) || primary.includes(q)
+  })
+})
+
+function getDuplicateFileName(dup: DocDuplicatePathResponse): string {
+  if (dup.fileName && dup.fileName.trim()) return dup.fileName
+  if (dup.file_name && dup.file_name.trim()) return dup.file_name
+  const allPaths = getDuplicatePaths(dup)
+  if (allPaths.length > 0) {
+    const fromPath = allPaths[0].split(/[/\\]/).pop()
+    if (fromPath) return fromPath
+  }
+  return 'Unnamed Document'
+}
+
+function getDuplicatePaths(dup: DocDuplicatePathResponse): string[] {
+  if (dup.paths && Array.isArray(dup.paths) && dup.paths.length > 0) {
+    return dup.paths
+  }
+  if (dup.duplicatePaths && Array.isArray(dup.duplicatePaths) && dup.duplicatePaths.length > 0) {
+    return dup.duplicatePaths
+  }
+  if (dup.filePath) {
+    return [dup.filePath]
+  }
+  return []
+}
+
+function askAboutDuplicate(dup: DocDuplicatePathResponse) {
+  const fileName = getDuplicateFileName(dup)
+  emit('askAboutDoc', {
+    id: dup.id || '',
+    fileName: fileName,
+    filePath: dup.filePath || getDuplicatePaths(dup)[0] || '',
+    checksum: dup.checksum || '',
+    docContent: `Duplicate file ${fileName} detected at locations: ${getDuplicatePaths(dup).join(', ')}. Checksum: ${dup.checksum}`,
+    duplicatePaths: getDuplicatePaths(dup),
+  })
 }
 
 function inspectDuplicates(doc: Doc) {

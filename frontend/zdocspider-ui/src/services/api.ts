@@ -201,7 +201,26 @@ export class ApiService {
         throw new Error(`Failed to fetch duplicates (status ${res.status})`)
       }
 
-      return await res.json()
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        return data.map((item: any) => {
+          const paths: string[] = item.paths || item.duplicatePaths || []
+          const rawName = item.fileName || item.file_name
+          const filePath = item.filePath || (paths.length > 0 ? paths[0] : '')
+          const fileName = rawName || (filePath ? filePath.split(/[/\\]/).pop() : '') || 'Duplicate PDF'
+
+          return {
+            id: item.id || '',
+            fileName,
+            file_name: fileName,
+            filePath,
+            checksum: item.checksum || '',
+            paths,
+            duplicatePaths: paths,
+          }
+        })
+      }
+      return []
     } catch (err) {
       console.warn('Failed to fetch duplicates, returning mock:', err)
       return MOCK_DOCS
@@ -209,8 +228,10 @@ export class ApiService {
         .map(d => ({
           id: d.id,
           fileName: d.fileName,
+          file_name: d.fileName,
           filePath: d.filePath,
           checksum: d.checksum,
+          paths: d.duplicatePaths,
           duplicatePaths: d.duplicatePaths,
         }))
     }

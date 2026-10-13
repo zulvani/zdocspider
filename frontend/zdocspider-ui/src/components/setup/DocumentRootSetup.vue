@@ -230,15 +230,15 @@
         <v-card variant="outlined" class="rounded-xl pa-4 border-subtle">
           <div class="d-flex align-center justify-space-between mb-3">
             <div class="text-body-2">
-              Found <strong>{{ duplicateResult.totalDuplicates }}</strong> duplicate files out of
+              Found <strong>{{ (duplicateResult.totalDuplicates ?? duplicateResult.totalDuplicatesFound ?? 0) }}</strong> duplicate files out of
               <strong>{{ duplicateResult.totalFilesFound }}</strong> scanned files.
             </div>
             <v-chip
-              :color="duplicateResult.totalDuplicates > 0 ? 'warning' : 'success'"
+              :color="(duplicateResult.totalDuplicates ?? duplicateResult.totalDuplicatesFound ?? 0) > 0 ? 'warning' : 'success'"
               size="small"
               variant="tonal"
             >
-              {{ duplicateResult.totalDuplicates > 0 ? 'Duplicates Detected' : 'All Unique' }}
+              {{ (duplicateResult.totalDuplicates ?? duplicateResult.totalDuplicatesFound ?? 0) > 0 ? 'Duplicates Detected' : 'All Unique' }}
             </v-chip>
           </div>
 
@@ -250,17 +250,17 @@
               color="warning"
               class="pa-3 mb-2 rounded-lg"
             >
-              <div class="font-weight-bold text-body-2 mb-1 d-flex align-center ga-2">
-                <v-icon icon="mdi-alert-circle-outline" size="18" />
-                {{ dup.fileName }}
+              <div class="font-weight-bold text-body-1 mb-1 d-flex align-center ga-2">
+                <v-icon icon="mdi-file-pdf-box" color="error" />
+                {{ getDuplicateFileName(dup) }}
               </div>
               <div class="text-caption font-mono mb-1">
-                Primary: {{ dup.filePath }}
+                <strong>Checksum:</strong> {{ dup.checksum }}
               </div>
-              <div v-if="dup.duplicatePaths && dup.duplicatePaths.length > 0" class="text-caption">
-                Duplicate paths:
-                <ul class="pl-4">
-                  <li v-for="(p, pIdx) in dup.duplicatePaths" :key="pIdx" class="font-mono">
+              <div v-if="getDuplicatePaths(dup).length > 0" class="text-caption">
+                <strong>Duplicate file locations ({{ getDuplicatePaths(dup).length }}):</strong>
+                <ul class="pl-4 mt-1">
+                  <li v-for="(p, pIdx) in getDuplicatePaths(dup)" :key="pIdx" class="font-mono">
                     {{ p }}
                   </li>
                 </ul>
@@ -388,6 +388,30 @@ async function handleDetectDuplicates() {
 function previewDoc(doc: Doc) {
   selectedDoc.value = doc
   previewDialog.value = true
+}
+
+function getDuplicateFileName(dup: any): string {
+  if (dup.fileName && dup.fileName.trim()) return dup.fileName
+  if (dup.file_name && dup.file_name.trim()) return dup.file_name
+  const allPaths = getDuplicatePaths(dup)
+  if (allPaths.length > 0) {
+    const fromPath = allPaths[0].split(/[/\\]/).pop()
+    if (fromPath) return fromPath
+  }
+  return 'Unnamed Document'
+}
+
+function getDuplicatePaths(dup: any): string[] {
+  if (dup.paths && Array.isArray(dup.paths) && dup.paths.length > 0) {
+    return dup.paths
+  }
+  if (dup.duplicatePaths && Array.isArray(dup.duplicatePaths) && dup.duplicatePaths.length > 0) {
+    return dup.duplicatePaths
+  }
+  if (dup.filePath) {
+    return [dup.filePath]
+  }
+  return []
 }
 </script>
 
