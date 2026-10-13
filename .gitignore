@@ -36,8 +36,10 @@ buildNumber.properties
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 
-# Project specific binary
-zdocspider
+# Project specific SQLite database file in project root
+/zdocspider
+/zdocspider-shm
+/zdocspider-wal
 
 # IntelliJ IDEA
 .idea/
