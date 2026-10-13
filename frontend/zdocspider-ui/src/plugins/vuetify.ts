@@ -10,10 +10,15 @@ import { createVuetify } from 'vuetify'
 import '@mdi/font/css/materialdesignicons.css'
 import 'vuetify/styles'
 
+// Detect stored theme or default to light
+const savedTheme = typeof localStorage !== 'undefined'
+  ? (localStorage.getItem('zdocspider_theme') || 'light')
+  : 'light'
+
 // https://vuetifyjs.com/en/introduction/why-vuetify/#feature-guides
 export default createVuetify({
   theme: {
-    defaultTheme: 'dark',
+    defaultTheme: savedTheme,
     themes: {
       dark: {
         dark: true,

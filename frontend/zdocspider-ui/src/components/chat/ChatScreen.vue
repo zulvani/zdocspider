@@ -320,14 +320,14 @@ onMounted(() => {
 
 .prompt-card {
   border-color: rgba(148, 163, 184, 0.2);
-  background-color: rgba(var(--v-theme-surface-variant), 0.4);
+  background-color: rgb(var(--v-theme-surface));
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .prompt-card:hover {
   transform: translateY(-2px);
   border-color: rgb(var(--v-theme-primary));
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 .border-b {

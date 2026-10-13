@@ -206,7 +206,7 @@ function copyContent() {
 }
 
 .border-subtle {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .letter-spacing-wide {
@@ -214,8 +214,8 @@ function copyContent() {
 }
 
 .source-card {
-  border-color: rgba(148, 163, 184, 0.2);
-  background-color: rgba(148, 163, 184, 0.02);
+  border-color: rgba(148, 163, 184, 0.25);
+  background-color: rgb(var(--v-theme-surface));
 }
 
 .source-snippet {

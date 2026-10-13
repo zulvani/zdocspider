@@ -174,22 +174,32 @@
         </div>
 
         <!-- Theme Toggle Button -->
-        <v-btn
-          icon="mdi-theme-light-dark"
-          variant="text"
-          size="small"
-          density="comfortable"
-          @click="$vuetify.theme.cycle()"
-        />
+        <v-tooltip :text="theme.global.current.value.dark ? 'Switch to Light theme' : 'Switch to Dark theme'" location="top">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'"
+              variant="text"
+              size="small"
+              density="comfortable"
+              @click="toggleTheme"
+            />
+          </template>
+        </v-tooltip>
       </div>
 
       <div v-else class="d-flex flex-column align-center ga-2">
-        <v-btn
-          icon="mdi-theme-light-dark"
-          variant="text"
-          size="x-small"
-          @click="$vuetify.theme.cycle()"
-        />
+        <v-tooltip :text="theme.global.current.value.dark ? 'Switch to Light theme' : 'Switch to Dark theme'" location="right">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'"
+              variant="text"
+              size="x-small"
+              @click="toggleTheme"
+            />
+          </template>
+        </v-tooltip>
       </div>
     </div>
   </v-navigation-drawer>
@@ -197,6 +207,7 @@
 
 <script lang="ts" setup>
 import { ref } from 'vue'
+import { useTheme } from 'vuetify'
 import type { ChatSession } from '@/types'
 
 defineProps<{
@@ -215,8 +226,19 @@ defineEmits<{
   (e: 'openSettings'): void
 }>()
 
+const theme = useTheme()
 const drawer = ref(true)
 const rail = ref(false)
+
+function toggleTheme() {
+  const nextTheme = theme.global.current.value.dark ? 'light' : 'dark'
+  theme.global.name.value = nextTheme
+  try {
+    localStorage.setItem('zdocspider_theme', nextTheme)
+  } catch (e) {
+    // ignore
+  }
+}
 </script>
 
 <style scoped>
